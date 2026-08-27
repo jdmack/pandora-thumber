@@ -1,16 +1,18 @@
 // ==UserScript==
 // @name         Pandora Thumber - Track Change POC
 // @namespace    https://github.com/jdmack/pandora-thumber
-// @version      0.1.0
-// @description  Detect Pandora track changes and print current metadata to the browser console.
+// @version      0.2.0
+// @description  Detect Pandora track changes and send current metadata to a local receiver.
 // @match        https://www.pandora.com/*
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @connect      127.0.0.1
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     const POLL_MS = 1000;
+    const RECEIVER_URL = 'http://127.0.0.1:8765/track';
     let lastTrackKey = null;
 
     function text(selector) {
@@ -50,6 +52,23 @@
         };
     }
 
+    function sendTrack(track) {
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: RECEIVER_URL,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            data: JSON.stringify(track),
+            onload(response) {
+                console.log(`[Pandora Thumber] Receiver responded ${response.status}`);
+            },
+            onerror(error) {
+                console.warn('[Pandora Thumber] Could not reach local receiver', error);
+            },
+        });
+    }
+
     function poll() {
         const track = readCurrentTrack();
         if (!track) return;
@@ -62,6 +81,7 @@
         lastTrackKey = trackKey;
 
         console.log('[Pandora Thumber] New track', track);
+        sendTrack(track);
     }
 
     console.log(`[Pandora Thumber] POC loaded; polling every ${POLL_MS} ms.`);
