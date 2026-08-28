@@ -1,10 +1,14 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from pathlib import Path
+from urllib import request, error
 
 HOST = "127.0.0.1"
 PORT = 8765
 BATCH_FILE = Path(__file__).with_name("current_batch.txt")
+BATCH_THRESHOLD = 10
+NTFY_TOPIC = "wolfswatch-pandora-thumber"
+NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 
 def log(message=""):
@@ -23,6 +27,38 @@ def load_existing_tracks():
 
 
 seen_tracks = load_existing_tracks()
+threshold_notified = False
+
+
+def send_ntfy_notification():
+    global threshold_notified
+
+    count = len(seen_tracks)
+    body = f"Pandora batch is ready: {count} songs in current_batch.txt"
+
+    req = request.Request(
+        NTFY_URL,
+        data=body.encode("utf-8"),
+        method="POST",
+        headers={
+            "Title": "Pandora Thumber",
+            "Priority": "default",
+            "Tags": "musical_note",
+        },
+    )
+
+    try:
+        with request.urlopen(req, timeout=10) as response:
+            response.read()
+        threshold_notified = True
+        log(f"[Pandora Thumber] ntfy alert sent: {count} tracks")
+    except (error.URLError, TimeoutError, OSError) as exc:
+        log(f"[Pandora Thumber] ntfy alert failed: {exc}")
+
+
+def check_batch_threshold():
+    if not threshold_notified and len(seen_tracks) >= BATCH_THRESHOLD:
+        send_ntfy_notification()
 
 
 def append_to_batch(artist, song):
@@ -37,6 +73,7 @@ def append_to_batch(artist, song):
 
     seen_tracks.add(line)
     log(f"[Pandora Thumber] Added to batch: {line}")
+    check_batch_threshold()
     return True
 
 
@@ -86,6 +123,11 @@ if __name__ == "__main__":
     log(f"[Pandora Thumber] Receiver listening on http://{HOST}:{PORT}")
     log(f"[Pandora Thumber] Batch file: {BATCH_FILE}")
     log(f"[Pandora Thumber] Existing batch tracks: {len(seen_tracks)}")
+    log(
+        f"[Pandora Thumber] Batch threshold: {BATCH_THRESHOLD} tracks; "
+        f"ntfy topic: {NTFY_TOPIC}"
+    )
+    check_batch_threshold()
 
     try:
         server.serve_forever()
