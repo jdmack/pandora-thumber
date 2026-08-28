@@ -78,6 +78,14 @@ def append_to_batch(artist, song):
 
 
 class TrackHandler(BaseHTTPRequestHandler):
+    def send_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         if self.path != "/track":
             self.send_response(404)
@@ -110,8 +118,8 @@ class TrackHandler(BaseHTTPRequestHandler):
         )
         append_to_batch(artist, song)
 
-        self.send_response(204)
-        self.end_headers()
+        pause = len(seen_tracks) >= BATCH_THRESHOLD
+        self.send_json(200, {"pause": pause, "batch_count": len(seen_tracks)})
 
     def log_message(self, format, *args):
         # Suppress BaseHTTPRequestHandler's default access-log noise.
