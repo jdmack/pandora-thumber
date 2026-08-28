@@ -5,6 +5,10 @@ HOST = "127.0.0.1"
 PORT = 8765
 
 
+def log(message=""):
+    print(message, flush=True)
+
+
 class TrackHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/track":
@@ -17,12 +21,12 @@ class TrackHandler(BaseHTTPRequestHandler):
             raw_body = self.rfile.read(content_length)
             track = json.loads(raw_body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            print(f"[Pandora Thumber] Invalid request: {exc}")
+            log(f"[Pandora Thumber] Invalid request: {exc}")
             self.send_response(400)
             self.end_headers()
             return
 
-        print(
+        log(
             "[Pandora Thumber] Received: "
             f"{track.get('artist', '?')} - {track.get('song', '?')} "
             f"[{track.get('station', '?')}] rating={track.get('rating', 'none')}"
@@ -38,11 +42,11 @@ class TrackHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = HTTPServer((HOST, PORT), TrackHandler)
-    print(f"[Pandora Thumber] Receiver listening on http://{HOST}:{PORT}")
+    log(f"[Pandora Thumber] Receiver listening on http://{HOST}:{PORT}")
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n[Pandora Thumber] Receiver stopped.")
+        log("\n[Pandora Thumber] Receiver stopped.")
     finally:
         server.server_close()
