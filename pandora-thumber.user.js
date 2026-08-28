@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pandora Thumber - Track Change POC
 // @namespace    https://github.com/jdmack/pandora-thumber
-// @version      0.2.0
-// @description  Detect Pandora track changes and send current metadata to a local receiver.
+// @version      0.3.0
+// @description  Detect Pandora track changes, send metadata to a local receiver, and pause when the batch is ready.
 // @match        https://www.pandora.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      127.0.0.1
@@ -52,6 +52,20 @@
         };
     }
 
+    function pausePandora() {
+        // Pandora only exposes pause_button while audio is actively playing.
+        // If it is already paused, this selector does not exist, so this is safe.
+        const pauseButton = document.querySelector('[data-qa="pause_button"]');
+
+        if (!pauseButton) {
+            console.log('[Pandora Thumber] Pandora is already paused or pause button is unavailable.');
+            return;
+        }
+
+        pauseButton.click();
+        console.log('[Pandora Thumber] Batch ready; paused Pandora.');
+    }
+
     function sendTrack(track) {
         GM_xmlhttpRequest({
             method: 'POST',
@@ -62,6 +76,19 @@
             data: JSON.stringify(track),
             onload(response) {
                 console.log(`[Pandora Thumber] Receiver responded ${response.status}`);
+
+                if (response.status !== 200) return;
+
+                try {
+                    const result = JSON.parse(response.responseText);
+                    console.log(`[Pandora Thumber] Batch count: ${result.batch_count}`);
+
+                    if (result.pause) {
+                        pausePandora();
+                    }
+                } catch (error) {
+                    console.warn('[Pandora Thumber] Invalid receiver response', error);
+                }
             },
             onerror(error) {
                 console.warn('[Pandora Thumber] Could not reach local receiver', error);
