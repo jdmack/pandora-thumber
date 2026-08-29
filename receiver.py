@@ -27,12 +27,22 @@ def load_existing_tracks():
 
 
 seen_tracks = load_existing_tracks()
-threshold_notified = False
+# If we start while an old batch is already full, assume it has already fired.
+# Deleting/clearing the batch file below the threshold automatically rearms it.
+batch_full_triggered = len(seen_tracks) >= BATCH_THRESHOLD
+
+
+def refresh_batch_state():
+    global seen_tracks, batch_full_triggered
+
+    seen_tracks = load_existing_tracks()
+
+    if len(seen_tracks) < BATCH_THRESHOLD and batch_full_triggered:
+        batch_full_triggered = False
+        log("[Pandora Thumber] Batch is below threshold; full-batch trigger rearmed.")
 
 
 def send_ntfy_notification():
-    global threshold_notified
-
     count = len(seen_tracks)
     body = f"Pandora batch is ready: {count} songs in current_batch.txt"
 
@@ -50,15 +60,9 @@ def send_ntfy_notification():
     try:
         with request.urlopen(req, timeout=10) as response:
             response.read()
-        threshold_notified = True
         log(f"[Pandora Thumber] ntfy alert sent: {count} tracks")
     except (error.URLError, TimeoutError, OSError) as exc:
         log(f"[Pandora Thumber] ntfy alert failed: {exc}")
-
-
-def check_batch_threshold():
-    if not threshold_notified and len(seen_tracks) >= BATCH_THRESHOLD:
-        send_ntfy_notification()
 
 
 def append_to_batch(artist, song):
@@ -73,7 +77,18 @@ def append_to_batch(artist, song):
 
     seen_tracks.add(line)
     log(f"[Pandora Thumber] Added to batch: {line}")
-    check_batch_threshold()
+    return True
+
+
+def check_full_batch_trigger():
+    global batch_full_triggered
+
+    if batch_full_triggered or len(seen_tracks) < BATCH_THRESHOLD:
+        return False
+
+    # This is the one transition that causes both the notification and browser pause.
+    batch_full_triggered = True
+    send_ntfy_notification()
     return True
 
 
@@ -111,6 +126,10 @@ class TrackHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        # Re-read the file on every received track so manual deletion/editing is
+        # immediately respected without restarting the receiver.
+        refresh_batch_state()
+
         log(
             "[Pandora Thumber] Received: "
             f"{artist} - {song} "
@@ -118,7 +137,9 @@ class TrackHandler(BaseHTTPRequestHandler):
         )
         append_to_batch(artist, song)
 
-        pause = len(seen_tracks) >= BATCH_THRESHOLD
+        # pause=True is returned exactly once when this batch first becomes full.
+        # Additional songs continue to be logged but will not re-pause Pandora.
+        pause = check_full_batch_trigger()
         self.send_json(200, {"pause": pause, "batch_count": len(seen_tracks)})
 
     def log_message(self, format, *args):
@@ -135,7 +156,8 @@ if __name__ == "__main__":
         f"[Pandora Thumber] Batch threshold: {BATCH_THRESHOLD} tracks; "
         f"ntfy topic: {NTFY_TOPIC}"
     )
-    check_batch_threshold()
+    if batch_full_triggered:
+        log("[Pandora Thumber] Existing batch is already full; trigger is disarmed until batch is cleared.")
 
     try:
         server.serve_forever()
