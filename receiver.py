@@ -6,7 +6,7 @@ from urllib import request, error
 HOST = "127.0.0.1"
 PORT = 8765
 BATCH_FILE = Path(__file__).with_name("current_batch.txt")
-BATCH_THRESHOLD = 10
+BATCH_THRESHOLD = 28
 NTFY_TOPIC = "wolfswatch-pandora-thumber"
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
