@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from urllib import request, error
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8765
 BATCH_FILE = Path(__file__).with_name("current_batch.txt")
 BATCH_THRESHOLD = 28

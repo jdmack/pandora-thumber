@@ -5,14 +5,14 @@
 // @description  Detect Pandora track changes, send metadata to a local receiver, and pause when the batch is ready.
 // @match        https://www.pandora.com/*
 // @grant        GM_xmlhttpRequest
-// @connect      127.0.0.1
+// @connect      192.168.1.61
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     const POLL_MS = 1000;
-    const RECEIVER_URL = 'http://127.0.0.1:8765/track';
+    const RECEIVER_URL = 'http://192.168.1.61:8765/track';
     let lastTrackKey = null;
 
     function text(selector) {
