@@ -2,7 +2,14 @@
 
 Pandora Thumber currently has a working browser client (`pandora-thumber.user.js`) that reads Pandora's web-player DOM and sends new tracks to the shared receiver on the LAN.
 
-The intended next client is Android. The goal is the same: when the Pandora Android app starts playing a new song, detect it and POST the track to the existing `receiver.py` service. The receiver and batch workflow should remain shared between browser and Android clients.
+The intended next client is Android. The goal is the same: when the Pandora Android app starts playing a new song, detect it and POST the track to the existing `receiver.py` service.
+
+Pandora's browser client and Android client have separate recent-song histories, so the receiver now treats them as separate **sources** with independent batches:
+
+- `web` -> `current_batch_web.txt`
+- `android` -> `current_batch_android.txt`
+
+Each source has its own duplicate set, count, threshold state, notification, and one-shot pause behavior. Filling or clearing one batch does not affect the other.
 
 ## Why this should be possible
 
@@ -33,20 +40,21 @@ Pandora Thumber Android app
       | title / artist / playback state
       v
 POST http://<receiver>:8765/track
-      |
+      | source = "android"
       v
 existing receiver.py
       |
-      +--> current_batch.txt
-      +--> ntfy when batch fills
-      +--> {batch_count, pause}
+      +--> current_batch_android.txt
+      +--> Android-specific threshold state
+      +--> ntfy when Android batch fills
+      +--> {source, batch_count, pause}
                          |
                          v
              Android client pauses Pandora
              through MediaController if supported
 ```
 
-The goal is to preserve the existing receiver protocol so the receiver does not need to care whether a track came from Tampermonkey or Android.
+The receiver protocol is shared between clients, but `source` tells the receiver which Pandora recent-history list the song belongs to.
 
 ## Primary approach: MediaSession
 
@@ -71,20 +79,21 @@ Unlike the Tampermonkey client, this should normally be event-driven. There shou
 
 The browser client currently uses `artist + song` as its simple in-memory identity and sends only when that key changes. The Android client can initially do the same unless Pandora exposes a stable media ID that provides a compelling reason to use it.
 
-The receiver also protects the current batch from duplicate `Artist - Song` lines, so an accidental duplicate client event should not duplicate the batch entry.
+The receiver also protects each source's current batch from duplicate `Artist - Song` lines, so an accidental duplicate Android event should not duplicate the Android batch entry.
 
 ## Receiver integration
 
-Once the MediaSession proof of concept works, POST the same basic JSON structure used by the browser client to:
+Once the MediaSession proof of concept works, POST to:
 
 ```text
 http://<receiver-address>:8765/track
 ```
 
-The current browser payload is conceptually:
+The Android payload should explicitly identify itself as `android`:
 
 ```json
 {
+  "source": "android",
   "station": "Carry on Wayward Son Radio",
   "artist": "AC/DC",
   "song": "Get It Hot",
@@ -92,22 +101,25 @@ The current browser payload is conceptually:
 }
 ```
 
-Artist and song are the receiver's required fields. Android may not expose Pandora station name or Pandora thumb state through the MediaSession. If those fields are unavailable, do not invent them; either omit them or send an appropriate neutral value and let the receiver continue treating them as optional/diagnostic metadata.
+Artist and song are required. Source should always be `android` for this client. Station name and Pandora thumb state may not be exposed through MediaSession; if unavailable, do not invent them.
 
-The Android app must have normal network/Internet permission and must be able to reach the receiver machine on the local network. The existing receiver already listens on TCP 8765 on the LAN.
+The receiver defaults a missing source to `web` for backward compatibility with older Tampermonkey clients, but the Android client should never rely on that default.
+
+The Android app must have normal network/Internet permission and must be able to reach the receiver machine on the local network. The existing receiver listens on TCP 8765 on the LAN.
 
 ## Batch-full pause
 
-The existing protocol already supports the behavior we want. When a newly received track first fills the batch, the receiver responds with:
+When the Android batch first reaches the configured threshold, the receiver responds to that Android request with something like:
 
 ```json
 {
+  "source": "android",
   "batch_count": 28,
   "pause": true
 }
 ```
 
-The browser client handles this by clicking Pandora's DOM Pause button.
+The web batch may be at any count and is unaffected.
 
 For Android, investigate whether the `MediaController` attached to Pandora's session permits calling its transport controls to pause playback. This is the preferred mechanism because media sessions are specifically intended to support external playback controllers.
 
@@ -116,14 +128,16 @@ If it works, the Android behavior becomes:
 ```text
 Pandora changes song
     -> Android client receives metadata callback
-    -> POST track to Rapier
-    -> receiver appends track
-    -> batch reaches threshold
-    -> receiver sends ntfy + pause=true
+    -> POST source=android track to Rapier
+    -> receiver appends to current_batch_android.txt
+    -> Android batch reaches threshold
+    -> receiver sends Android ntfy + pause=true
     -> Android client calls Pandora MediaController pause
 ```
 
-As with the browser version, `pause=true` is only returned once for a full batch. If the user manually resumes Pandora without clearing the batch, subsequent songs must continue to be captured without repeatedly pausing playback.
+`pause=true` is returned exactly once for that full Android batch. If the user manually resumes Pandora without clearing `current_batch_android.txt`, subsequent Android songs continue to be captured without repeatedly pausing playback.
+
+Clearing `current_batch_android.txt` below the threshold rearms only the Android trigger. It does not touch the web batch.
 
 ## Fallback: notification contents
 
@@ -140,10 +154,10 @@ Keep the Android client consistent with the philosophy of the existing project. 
 Its job is narrowly:
 
 ```text
-Detect Pandora song -> send song to receiver -> honor one-shot pause response
+Detect Pandora song -> send source=android song to receiver -> honor one-shot pause response
 ```
 
-The receiver remains the source of truth for `current_batch.txt`, batch threshold state, and ntfy notifications.
+The receiver remains the source of truth for the source-specific batch files, threshold state, and ntfy notifications.
 
 ## First milestone
 
